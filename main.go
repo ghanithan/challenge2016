@@ -23,12 +23,14 @@ func main() {
 	if err != nil {
 		logger.Error(err.Error())
 	}
-	logger.Info("%v", qubeDma)
+	//logger.Info("%v", qubeDma)
+
+	qubeDma.PrintTree()
 
 	queryDma := dma.QueryDma{
-		CountryCode: "IN",
-		StateCode:   "TN",
-		CityCode:    "CENAI",
+		CountryCode: "BE",
+		StateCode:   "WLG",
+		CityCode:    "BUIGE",
 	}
 
 	qubeDma.PrintDma(queryDma)

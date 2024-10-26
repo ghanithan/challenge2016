@@ -30,10 +30,20 @@ const (
 
 // DMA is structured as follows
 type Dma struct {
-	mu           sync.Mutex
+	mu          sync.Mutex
+	data        Data
+	lookup      Lookup
+	updatedTime time.Time
+}
+
+type Data struct {
+	places       *Place
+	distributors *distributor
+}
+
+type Lookup struct {
 	countries    map[string]Country
 	distributors map[string]distributorWrapper
-	updatedTime  time.Time
 }
 
 type Country struct {
@@ -55,6 +65,8 @@ type Place struct {
 	Name          string
 	Code          string
 	rightsOwnedBy *distributor
+	next          []*Place
+	up            *Place
 }
 
 func fmtPlace(place Place) string {
@@ -77,7 +89,7 @@ func (dma Dma) PrintDma(query QueryDma) {
 		fmt.Println("The query must have country code")
 		return
 	}
-	country := dma.countries[query.CountryCode]
+	country := dma.lookup.countries[query.CountryCode]
 	fmt.Println("Country:", country.Place)
 	if len(query.StateCode) == 0 {
 		fmt.Println("Place Id:", country.Place.id)
@@ -109,9 +121,18 @@ func validateRow(slice []string) (row, error) {
 			places[i].Code = slice[i]
 			places[i].Name = slice[HEIRARCHY+i]
 		}
+
 		return places, nil
 	}
 
+}
+
+func (place *Place) addUp(up *Place) {
+	place.up = up
+}
+
+func (place *Place) addNext(next *Place) {
+	place.next = append(place.next, next)
 }
 
 func InitDma(config *config.Config, logger *instrumentation.GoLogger) (*Dma, error) {
@@ -121,7 +142,13 @@ func InitDma(config *config.Config, logger *instrumentation.GoLogger) (*Dma, err
 	}
 
 	dma := Dma{}
-	dma.countries = make(map[string]Country)
+	dma.lookup.countries = make(map[string]Country)
+	world := Place{
+		id:   uuid.New(),
+		Name: "World",
+		Code: "World",
+	}
+	dma.data.places = &world
 
 	for _, row := range csv {
 		places, err := validateRow(row)
@@ -129,7 +156,7 @@ func InitDma(config *config.Config, logger *instrumentation.GoLogger) (*Dma, err
 			logger.Error("%s", err)
 			return nil, err
 		}
-		if country, ok := dma.countries[places[COUNTRY].Code]; ok {
+		if country, ok := dma.lookup.countries[places[COUNTRY].Code]; ok {
 			states := country.States
 			if state, ok := states[places[STATE].Code]; ok {
 				if present, ok := state.Cities[places[CITY].Code]; ok {
@@ -137,28 +164,80 @@ func InitDma(config *config.Config, logger *instrumentation.GoLogger) (*Dma, err
 					logger.Error(error, present)
 					//return nil, fmt.Errorf("%s: %s", error, present)
 				} else {
+					place := &places[CITY]
+					place.addUp(state.Place)
+					state.Place.addNext(place)
 					state.Cities[places[CITY].Code] = City{
-						Place: &places[CITY],
+						Place: place,
 					}
 
 				}
 			} else {
+				place := &places[STATE]
+				place.addUp(country.Place)
+				country.Place.addNext(place)
 				state := State{
-					Place:  &places[STATE],
+					Place:  place,
 					Cities: make(map[string]City),
 				}
+
+				// Add city
+				place = &places[CITY]
+				place.addUp(state.Place)
+				state.Place.addNext(place)
+				state.Cities[places[CITY].Code] = City{
+					Place: place,
+				}
+
 				states[places[STATE].Code] = state
 			}
 		} else {
+			place := &places[COUNTRY]
+			place.up = &world
+			world.next = append(world.next, place)
 			country := Country{
-				Place:  &places[COUNTRY],
+				Place:  place,
 				States: make(map[string]State),
 			}
-			dma.countries[places[COUNTRY].Code] = country
+			dma.lookup.countries[places[COUNTRY].Code] = country
+
+			place = &places[STATE]
+			place.addUp(country.Place)
+			country.Place.addNext(place)
+			state := State{
+				Place:  place,
+				Cities: make(map[string]City),
+			}
+			country.States[places[STATE].Code] = state
+
+			// Add city
+			place = &places[CITY]
+			place.addUp(state.Place)
+			state.Place.addNext(place)
+			state.Cities[places[CITY].Code] = City{
+				Place: place,
+			}
+
 		}
 	}
 	dma.updatedTime = time.Now()
 	return &dma, nil
+}
+
+func (dma Dma) PrintTree() {
+	printTreeInternal(dma.data.places, 0)
+}
+
+func printTreeInternal(node *Place, stage int) {
+	if node == nil {
+		return
+	}
+
+	fmt.Println(stage, node)
+	fmt.Printf("%q\n", node.next)
+	for _, child := range node.next {
+		printTreeInternal(child, stage+1)
+	}
 }
 
 // Distributor Datastructure
@@ -171,6 +250,8 @@ type distributor struct {
 	name     string
 	includes []*Place
 	excludes []*Place
+	prev     *distributor
+	next     *distributor
 }
 
 type distributorWrapper struct {
@@ -178,14 +259,14 @@ type distributorWrapper struct {
 }
 
 func (dma *Dma) AddDistributor(name string) (*distributor, error) {
-	if existingDistributor, ok := dma.distributors[name]; ok {
+	if existingDistributor, ok := dma.lookup.distributors[name]; ok {
 		return existingDistributor.entity, fmt.Errorf("distributor already present in the list")
 	}
 	distributor := distributor{
 		id:   uuid.New(),
 		name: name,
 	}
-	dma.distributors[name] = distributorWrapper{
+	dma.lookup.distributors[name] = distributorWrapper{
 		entity: &distributor,
 	}
 	return &distributor, nil
@@ -197,7 +278,7 @@ func (place Place) isDistributorPresent() bool {
 }
 
 func (dma *Dma) fetchDistributor(name string) *distributor {
-	return dma.distributors[name].entity
+	return dma.lookup.distributors[name].entity
 }
 
 func (dma *Dma) appendDistributorInclude(name string, place *Place) error {
@@ -207,10 +288,10 @@ func (dma *Dma) appendDistributorInclude(name string, place *Place) error {
 	} else {
 		place.rightsOwnedBy = distributor
 	}
-	temp := dma.distributors[name]
+	temp := dma.lookup.distributors[name]
 	temp.entity.includes = append(temp.entity.includes,
 		place)
-	dma.distributors[name] = temp
+	dma.lookup.distributors[name] = temp
 	return nil
 }
 
@@ -226,11 +307,11 @@ func (dma *Dma) IncludeDistributorPermission(name string, includes []QueryDma, e
 		var place *Place
 		switch {
 		case len(include.CityCode) != 0:
-			place = dma.countries[include.CountryCode].States[include.StateCode].Cities[include.CityCode].Place
+			place = dma.lookup.countries[include.CountryCode].States[include.StateCode].Cities[include.CityCode].Place
 		case len(include.StateCode) != 0:
-			place = dma.countries[include.CountryCode].States[include.StateCode].Place
+			place = dma.lookup.countries[include.CountryCode].States[include.StateCode].Place
 		case len(include.CountryCode) != 0:
-			place = dma.countries[include.CountryCode].Place
+			place = dma.lookup.countries[include.CountryCode].Place
 		}
 		dma.appendDistributorInclude(name, place)
 	}
