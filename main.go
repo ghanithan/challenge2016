@@ -25,14 +25,42 @@ func main() {
 	}
 	//logger.Info("%v", qubeDma)
 
-	qubeDma.PrintTree()
+	qubeDma.PrintPlaces()
 
 	queryDma := dma.QueryDma{
+		CountryCode: "BE",
+		StateCode:   "WLG",
+	}
+
+	// qubeDma.PrintDma(queryDma)
+
+	include := []dma.QueryDma{}
+	exclude := []dma.QueryDma{}
+
+	include = append(include, queryDma)
+
+	qubeDma.IncludeDistributorPermission("distributor1", include, exclude, logger)
+
+	logger.Info("distributor1 added")
+	qubeDma.PrintDistributors()
+
+	qubeDma.PrintDma(queryDma)
+
+	queryDma = dma.QueryDma{
 		CountryCode: "BE",
 		StateCode:   "WLG",
 		CityCode:    "BUIGE",
 	}
 
-	qubeDma.PrintDma(queryDma)
+	exclude = append(exclude, queryDma)
+
+
+	qubeDma.IncludeDistributorPermission("distributor2", include, exclude, logger)
+
+	queryDma = dma.QueryDma{
+		CountryCode: "BE",
+	}
+
+	qubeDma.PrintPlacesFrom(queryDma)
 
 }

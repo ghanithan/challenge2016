@@ -25,12 +25,13 @@ const (
 )
 
 const (
-	distributorAlreadyPresentError = "distributor is already present for the place"
+	distributorAlreadyPresentError  = "distributor is already present for the place"
+	distributorAlreadyExcludedError = "distributor is already excluded for the place"
 )
 
 // DMA is structured as follows
 type Dma struct {
-	mu          sync.Mutex
+	sync.RWMutex
 	data        Data
 	lookup      Lookup
 	updatedTime time.Time
@@ -73,6 +74,10 @@ func fmtPlace(place Place) string {
 	return fmt.Sprintf("%s (%s)", place.Name, place.Code)
 }
 
+func (place Place) fmtPlaceWithRights() string {
+	return fmt.Sprintf("%s (%s) - %s", place.Name, place.Code, place.rightsOwnedBy)
+}
+
 func (place Place) String() string {
 	return fmtPlace(place)
 }
@@ -84,7 +89,27 @@ type QueryDma struct {
 	CityCode    string `json:"ctyc,omitempty"`
 }
 
-func (dma Dma) PrintDma(query QueryDma) {
+func (dma *Dma) queryToPlace(query QueryDma) (*Place, error) {
+	dma.RLock()
+	defer dma.RUnlock()
+	var place *Place
+	switch {
+	case len(query.CityCode) != 0:
+		place = dma.lookup.countries[query.CountryCode].States[query.StateCode].Cities[query.CityCode].Place
+	case len(query.StateCode) != 0:
+		place = dma.lookup.countries[query.CountryCode].States[query.StateCode].Place
+	case len(query.CountryCode) != 0:
+		place = dma.lookup.countries[query.CountryCode].Place
+	}
+	if place == nil {
+		return nil, fmt.Errorf("queried place is not supported")
+	}
+	return place, nil
+}
+
+func (dma *Dma) PrintDma(query QueryDma) {
+	dma.RLock()
+	defer dma.RUnlock()
 	if len(query.CountryCode) == 0 {
 		fmt.Println("The query must have country code")
 		return
@@ -93,6 +118,7 @@ func (dma Dma) PrintDma(query QueryDma) {
 	fmt.Println("Country:", country.Place)
 	if len(query.StateCode) == 0 {
 		fmt.Println("Place Id:", country.Place.id)
+		fmt.Println("Distributor:\n", country.Place.rightsOwnedBy)
 		return
 	}
 	state := country.States[query.StateCode]
@@ -100,11 +126,13 @@ func (dma Dma) PrintDma(query QueryDma) {
 
 	if len(query.CityCode) == 0 {
 		fmt.Println("Place Id:", state.Place.id)
+		fmt.Println("Distributor:\n", state.Place.rightsOwnedBy)
 		return
 	}
 	city := state.Cities[query.CityCode]
 	fmt.Println("City:", city.Place)
 	fmt.Println("Place Id:", city.Place.id)
+	fmt.Println("Distributor:\n", city.Place.rightsOwnedBy)
 
 }
 
@@ -143,12 +171,14 @@ func InitDma(config *config.Config, logger *instrumentation.GoLogger) (*Dma, err
 
 	dma := Dma{}
 	dma.lookup.countries = make(map[string]Country)
+	dma.lookup.distributors = make(map[string]distributorWrapper)
 	world := Place{
 		id:   uuid.New(),
 		Name: "World",
 		Code: "World",
 	}
 	dma.data.places = &world
+	dma.data.distributors = &distributor{}
 
 	for _, row := range csv {
 		places, err := validateRow(row)
@@ -224,19 +254,32 @@ func InitDma(config *config.Config, logger *instrumentation.GoLogger) (*Dma, err
 	return &dma, nil
 }
 
-func (dma Dma) PrintTree() {
-	printTreeInternal(dma.data.places, 0)
+func (dma *Dma) PrintPlaces() {
+	dma.RLock()
+	defer dma.RUnlock()
+
+	printPlacesInternal(dma.data.places, 0)
 }
 
-func printTreeInternal(node *Place, stage int) {
+func (dma *Dma) PrintPlacesFrom(query QueryDma) {
+	dma.RLock()
+	defer dma.RUnlock()
+	place, err := dma.queryToPlace(query)
+	if err != nil {
+		fmt.Println(err)
+	}
+	printPlacesInternal(place, 0)
+}
+
+func printPlacesInternal(node *Place, stage int) {
 	if node == nil {
 		return
 	}
 
-	fmt.Println(stage, node)
+	fmt.Println(stage, node.fmtPlaceWithRights())
 	fmt.Printf("%q\n", node.next)
 	for _, child := range node.next {
-		printTreeInternal(child, stage+1)
+		printPlacesInternal(child, stage+1)
 	}
 }
 
@@ -258,35 +301,122 @@ type distributorWrapper struct {
 	entity *distributor
 }
 
+func (dist distributor) String() string {
+	return fmt.Sprintf("%s: %s\n - Include: %q\n -Exclude %q\n", dist.id, dist.name, dist.includes, dist.excludes)
+}
+
+func (dma *Dma) PrintDistributors() {
+	dma.RLock()
+	defer dma.RUnlock()
+
+}
+
+func printDistrbibutorsInternal(node *distributor, stage int) {
+	if node == nil {
+		return
+	}
+
+	fmt.Println(stage, node)
+
+	printDistrbibutorsInternal(node.next, stage+1)
+
+}
+
 func (dma *Dma) AddDistributor(name string) (*distributor, error) {
+	dma.Lock()
+	defer dma.Unlock()
 	if existingDistributor, ok := dma.lookup.distributors[name]; ok {
 		return existingDistributor.entity, fmt.Errorf("distributor already present in the list")
 	}
-	distributor := distributor{
+	dist := &distributor{
 		id:   uuid.New(),
 		name: name,
 	}
+	dist.next = dma.data.distributors
+	temp := dma.data.distributors
+	dma.data.distributors = dist
+	temp.prev = dist
+
 	dma.lookup.distributors[name] = distributorWrapper{
-		entity: &distributor,
+		entity: dist,
 	}
-	return &distributor, nil
+	return dist, nil
 }
 
-func (place Place) isDistributorPresent() bool {
+func (place *Place) isDistributorPresent() bool {
 	return place.rightsOwnedBy != nil
+}
 
+func (place *Place) isDistributor(dist *distributor) bool {
+	return place.rightsOwnedBy == dist
+}
+
+func checkConflictDistributor(place *Place, dist *distributor) error {
+	if place == nil {
+		return nil
+	}
+
+	if place.isDistributor(dist) {
+		return fmt.Errorf("%s", distributorAlreadyPresentError)
+	}
+
+	for _, child := range place.next {
+		err := checkConflictDistributor(child, dist)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func assignDistributor(place *Place, dist *distributor) {
+	if place == nil {
+		return
+	}
+
+	place.rightsOwnedBy = dist
+
+	for _, child := range place.next {
+		assignDistributor(child, dist)
+	}
+}
+
+func (place *Place) removeDistributor() {
+	place.rightsOwnedBy = nil
+}
+
+func excludeDistributor(place *Place, dist *distributor) {
+	if place == nil {
+		return
+	}
+
+	if place.isDistributor(dist) {
+		place.removeDistributor()
+	}
+
+	for _, child := range place.next {
+		excludeDistributor(child, dist)
+	}
 }
 
 func (dma *Dma) fetchDistributor(name string) *distributor {
 	return dma.lookup.distributors[name].entity
 }
 
-func (dma *Dma) appendDistributorInclude(name string, place *Place) error {
+func (dma *Dma) appendDistributorInclude(name string, place *Place, logger instrumentation.GoLogger) error {
+	defer logger.TimeTheFunction(time.Now(), "appendDistributorInclude")
+	dma.Lock()
+	defer dma.Unlock()
+
 	distributor := dma.fetchDistributor(name)
 	if place.isDistributorPresent() {
 		return fmt.Errorf("%s in %s", distributorAlreadyPresentError, place)
 	} else {
-		place.rightsOwnedBy = distributor
+		err := checkConflictDistributor(place, distributor)
+		if err != nil {
+			return err
+		}
+		assignDistributor(place, distributor)
 	}
 	temp := dma.lookup.distributors[name]
 	temp.entity.includes = append(temp.entity.includes,
@@ -295,25 +425,49 @@ func (dma *Dma) appendDistributorInclude(name string, place *Place) error {
 	return nil
 }
 
+func (dma *Dma) appendDistributorExclude(name string, place *Place) error {
+	dma.Lock()
+	defer dma.Unlock()
+
+	distributor := dma.fetchDistributor(name)
+	if place.isDistributor(distributor) {
+		excludeDistributor(place, distributor)
+	} else {
+		return fmt.Errorf("%s in %s", distributorAlreadyExcludedError, place)
+	}
+	temp := dma.lookup.distributors[name]
+	temp.entity.excludes = append(temp.entity.excludes,
+		place)
+	dma.lookup.distributors[name] = temp
+	return nil
+}
+
 func (dma *Dma) IncludeDistributorPermission(name string, includes []QueryDma, excludes []QueryDma,
 	logger instrumentation.GoLogger) error {
+	defer logger.TimeTheFunction(time.Now(), "IncludeDistributorPermission")
+	logger.Info("adding districution", name)
 
 	_, err := dma.AddDistributor(name)
 	if err != nil {
 		logger.Info("%s", err)
 	}
 
+	logger.Info("adding inclusions")
 	for _, include := range includes {
-		var place *Place
-		switch {
-		case len(include.CityCode) != 0:
-			place = dma.lookup.countries[include.CountryCode].States[include.StateCode].Cities[include.CityCode].Place
-		case len(include.StateCode) != 0:
-			place = dma.lookup.countries[include.CountryCode].States[include.StateCode].Place
-		case len(include.CountryCode) != 0:
-			place = dma.lookup.countries[include.CountryCode].Place
+		place, err := dma.queryToPlace(include)
+		if err != nil {
+			return err
 		}
-		dma.appendDistributorInclude(name, place)
+		dma.appendDistributorInclude(name, place, logger)
+	}
+
+	logger.Info("adding exclusions")
+	for _, exclude := range excludes {
+		place, err := dma.queryToPlace(exclude)
+		if err != nil {
+			return err
+		}
+		dma.appendDistributorExclude(name, place)
 	}
 
 	return nil
