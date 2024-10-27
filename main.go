@@ -39,24 +39,49 @@ func main() {
 
 	include = append(include, queryDma)
 
-	qubeDma.IncludeDistributorPermission("distributor1", include, exclude, logger)
+	distributor, err := qubeDma.AddDistributor("distributor1", nil)
+	if err != nil {
+		logger.Error("%s", err)
+	}
+
+	qubeDma.IncludeDistributorPermission(distributor, include, exclude, logger)
 
 	logger.Info("distributor1 added")
 	qubeDma.PrintDistributors()
 
-	qubeDma.PrintDma(queryDma)
+	qubeDma.PrintPlacesFrom(queryDma)
 
 	queryDma = dma.QueryDma{
-		CountryCode: "BE",
-		StateCode:   "WLG",
-		CityCode:    "BUIGE",
+		CountryCode: "IN",
+		StateCode:   "TN",
 	}
 
 	exclude = append(exclude, queryDma)
 
+	distributor, err = qubeDma.AddDistributor("distributor2", distributor)
+	if err != nil {
+		logger.Error("%s", err)
+	}
+	err = qubeDma.IncludeDistributorPermission(distributor, include, exclude, logger)
+	if err != nil {
+		logger.Error("%s", err)
+	} else {
+		logger.Info("distributor2 added")
+		qubeDma.PrintPlacesFrom(queryDma)
 
-	qubeDma.IncludeDistributorPermission("distributor2", include, exclude, logger)
+	}
 
+	include = include[0:0]
+
+	distributor, err = qubeDma.AddDistributor("distributor3", nil)
+	if err != nil {
+		logger.Error("%s", err)
+	}
+
+	err = qubeDma.IncludeDistributorPermission(distributor, include, exclude, logger)
+	if err != nil {
+		logger.Error("%s", err)
+	}
 	queryDma = dma.QueryDma{
 		CountryCode: "BE",
 	}
