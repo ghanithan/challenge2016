@@ -4,7 +4,7 @@ import (
 	"os"
 
 	"github.com/ghanithan/challenge2016/instrumentation"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 func GetConfig(logger instrumentation.GoLogger, args ...string) (*Config, error) {
@@ -28,6 +28,7 @@ func GetConfig(logger instrumentation.GoLogger, args ...string) (*Config, error)
 
 	// unmarshal the yaml file into conifg struct
 	decoder := yaml.NewDecoder(file)
+	decoder.KnownFields(true)
 	if err := decoder.Decode(&config); err != nil {
 		return nil, err
 	}

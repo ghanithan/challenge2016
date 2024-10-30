@@ -1,2 +1,4 @@
 data:
   filepath: ./cities.csv
+httpserver:
+  port: 3000

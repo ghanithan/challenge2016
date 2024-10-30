@@ -8,4 +8,5 @@ type Instrumentation interface {
 	Warn(msg string, args map[string]interface{})
 	Error(msg string, args map[string]interface{})
 	TimeTheFunction(start time.Time, functionName string)
+	String(key string, value string)
 }

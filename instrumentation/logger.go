@@ -32,6 +32,10 @@ func (l *GoLogger) Error(msg string, args ...any) {
 	l.logger.Error(msg, args...)
 }
 
+func (l *GoLogger) String(key string, value string) slog.Attr {
+	return slog.String(key, value)
+}
+
 func (l *GoLogger) TimeTheFunction(start time.Time, functionName string) {
 	elapsed := time.Since(start)
 	log.Printf("%s took %dms to complete", functionName, elapsed.Nanoseconds()/1000)
