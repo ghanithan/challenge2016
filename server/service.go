@@ -9,6 +9,7 @@ import (
 	"github.com/ghanithan/challenge2016/dma"
 	"github.com/ghanithan/challenge2016/handlers"
 	"github.com/ghanithan/challenge2016/instrumentation"
+	ghandlers "github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 )
 
@@ -31,7 +32,7 @@ func InitServer(config *config.Config, dmaService *dma.Dma, logger *instrumentat
 	router = appService.AddHanlders(router)
 
 	httpService := http.Server{
-		Handler: router,
+		Handler: ghandlers.CompressHandler(router),
 		Addr:    fmt.Sprintf(":%s", config.HttpServer.Port),
 	}
 

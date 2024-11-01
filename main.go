@@ -25,6 +25,18 @@ func main() {
 		logger.Error(err.Error())
 	}
 
+	// distributor, err := qubeDma.AddDistributor("distributor1", nil)
+	// if err != nil {
+	// 	logger.Error("%s", err)
+	// }
+
+	// include := []string{"IN"}
+	// exclude := []string{}
+
+	// qubeDma.IncludeDistributorPermission(distributor, include, exclude, logger)
+
+	// qubeDma.PrintPlacesFrom("IN-TN-CENAI")
+
 	service, cancel := server.InitServer(config, qubeDma, &logger)
 	defer cancel()
 

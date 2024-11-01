@@ -15,6 +15,8 @@ type Service struct {
 }
 
 func (app *Service) AddHanlders(router *mux.Router) *mux.Router {
-	router.Handle("/version", app.GetVersion(router))
+	router.Handle("/version", app.GetVersion()).Methods("GET")
+	router.Handle("/list/places", app.GetListPlaces()).Methods("GET")
+	router.Handle("/distributor", app.PostAddNewDistributor()).Methods("POST")
 	return router
 }
