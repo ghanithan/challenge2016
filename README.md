@@ -11,7 +11,7 @@ provide a fast response.
 
 The endpoints are described in the OpenApi Spec (./openapispec_v1.yaml). The same can be viewed using [https://editor.swagger.io/](https://editor.swagger.io/)
 
-I am looking forwared to do a detailed write-up about the approch.
+I am looking forward to do a detailed write-up about the approch.
 
 
 
