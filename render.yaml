@@ -7,9 +7,9 @@ previews:
     generation: automatic # Enable preview environments
 
   # List all services *except* PostgreSQL databases here
-    services:
-        # A web service on the Ruby native runtime
-        type: web
+services:
+    # A web service on the Ruby native runtime
+    -   type: web
         runtime: go
         name: challenge2016
         repo: https://github.com/ghanithan/challenge2016 # Default: Repo containing render.yaml
