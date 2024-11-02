@@ -141,6 +141,10 @@ func (dma *Dma) GetPlaces() []*Place {
 	return dma.data.places.Next
 }
 
+func (dma *Dma) GetDistributors() []*Distributor {
+	return dma.data.distributors.next
+}
+
 func (dma *Dma) queryToPlace(query string) (*Place, error) {
 	dma.RLock()
 	defer dma.RUnlock()
@@ -317,13 +321,6 @@ func (dma *Dma) GetPlaceByCode(query string) (*Place, error) {
 	return nil, fmt.Errorf("the place with tag '%s' is not found", query)
 }
 
-func (dma *Dma) GetDistributorByName(name string) *Distributor {
-	dma.RLock()
-	defer dma.RUnlock()
-
-	return dma.lookup.distributors[name]
-}
-
 func printPlacesInternal(node *Place, stage int) {
 	if node == nil {
 		return
@@ -347,6 +344,22 @@ type Distributor struct {
 	excludes []*Place
 	up       *Distributor
 	next     []*Distributor
+}
+
+func (dist Distributor) GetIncludesAsTags() []string {
+	return placesToTags(dist.includes)
+}
+
+func (dist Distributor) GetExcludesAsTags() []string {
+	return placesToTags(dist.excludes)
+}
+
+func placesToTags(places []*Place) []string {
+	strs := []string{}
+	for _, place := range places {
+		strs = append(strs, place.Tag)
+	}
+	return strs
 }
 
 func (dist *Distributor) String() string {
@@ -380,6 +393,9 @@ func printDistrbibutorsInternal(node *Distributor, stage int) {
 }
 
 func (dma *Dma) GetDistributor(name string) (*Distributor, error) {
+	dma.RLock()
+	defer dma.RUnlock()
+
 	if dist, ok := dma.lookup.distributors[name]; ok {
 		return dist, nil
 	} else {
@@ -415,8 +431,38 @@ func (dma *Dma) AddDistributor(name string, parent *Distributor) (*Distributor, 
 	parent.next = append(parent.next, dist)
 	dist.up = parent
 
+	//lookup by name
 	dma.lookup.distributors[name] = dist
+	//lookup by id
+	dma.lookup.distributors[dist.Id.String()] = dist
 	return dist, nil
+}
+
+func (dma *Dma) DeleteDistributor(name string) error {
+	dma.Lock()
+	defer dma.Unlock()
+	if existingDistributor, ok := dma.lookup.distributors[name]; ok {
+		fetchedName := existingDistributor.Name
+		fetchedId := existingDistributor.Id.String()
+		parent := existingDistributor.up
+		for index, child := range parent.next {
+			if child == existingDistributor {
+				// delete distributor from linked list
+				parent.next = append(parent.next[0:index], parent.next[index+1:]...)
+				// delete distributor reference from lookup map
+				delete(dma.lookup.distributors, fetchedId)
+				delete(dma.lookup.distributors, fetchedName)
+
+				// delete all reference in places
+				for _, place := range existingDistributor.includes {
+					excludeDistributor(dma.lookup.places[place.Tag], existingDistributor)
+				}
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("distributor %s not present", name)
+
 }
 
 func (place *Place) isDistributorPresent() bool {
@@ -452,7 +498,22 @@ func assignDistributor(place *Place, dist *Distributor) {
 	}
 }
 
-func (place *Place) removeDistributor() {
+func (place *Place) removeDistributor(parent *Place) {
+	if parent.RightsOwnedBy == nil {
+		place.removeDistributorInternal()
+		return
+	}
+
+	for _, exclude := range parent.RightsOwnedBy.excludes {
+		if exclude == place {
+			place.removeDistributor(parent.up)
+			return
+		}
+	}
+	place.RightsOwnedBy = parent.RightsOwnedBy
+}
+
+func (place *Place) removeDistributorInternal() {
 	place.RightsOwnedBy = nil
 }
 
@@ -462,12 +523,71 @@ func excludeDistributor(place *Place, dist *Distributor) {
 	}
 
 	if place.isDistributor(dist) {
-		place.removeDistributor()
+		place.removeDistributor(place.up)
 	}
 
 	for _, child := range place.Next {
 		excludeDistributor(child, dist)
 	}
+}
+
+func (dma *Dma) DeleteDistributorInclude(distributor *Distributor, deletePlacesStr []string,
+	logger instrumentation.GoLogger) error {
+	defer logger.TimeTheFunction(time.Now(), "DeleteDistributorInclude")
+
+	deletePlaces := make(map[string]*Place)
+	for _, value := range deletePlacesStr {
+		place, err := dma.queryToPlace(value)
+		if err != nil {
+			return err
+		}
+		deletePlaces[place.Id.String()] = place
+	}
+
+	updatedIncludes := []*Place{}
+
+	dma.Lock()
+	defer dma.Unlock()
+	for _, include := range distributor.includes {
+		if place, ok := deletePlaces[include.Id.String()]; ok {
+			excludeDistributor(place, distributor)
+			continue
+		}
+		updatedIncludes = append(updatedIncludes, include)
+	}
+	distributor.includes = updatedIncludes
+	return nil
+}
+
+func (dma *Dma) DeleteDistributorExclude(distributor *Distributor, deletePlacesStr []string,
+	logger instrumentation.GoLogger) error {
+	defer logger.TimeTheFunction(time.Now(), "DeleteDistributorExclude")
+
+	deletePlaces := make(map[string]*Place)
+	for _, value := range deletePlacesStr {
+		place, err := dma.queryToPlace(value)
+		if err != nil {
+			return err
+		}
+
+		deletePlaces[place.Id.String()] = place
+	}
+
+	updatedExcludes := []*Place{}
+
+	dma.Lock()
+	defer dma.Unlock()
+	for _, exclude := range distributor.excludes {
+
+		if place, ok := deletePlaces[exclude.Id.String()]; ok {
+			assignDistributor(place, distributor)
+			continue
+		}
+		updatedExcludes = append(updatedExcludes, exclude)
+	}
+
+	distributor.excludes = updatedExcludes
+	return nil
 }
 
 func (dma *Dma) appendDistributorInclude(distributor *Distributor, place *Place,
@@ -476,11 +596,11 @@ func (dma *Dma) appendDistributorInclude(distributor *Distributor, place *Place,
 	dma.Lock()
 	defer dma.Unlock()
 
-	// if place.isDistributorPresent() {
-	// 	return fmt.Errorf("%s: %s in %s", distributor.name, distributorAlreadyPresentError, place)
-	// } else {
-	assignDistributor(place, distributor)
-	// }
+	if place.isDistributorPresent() && !place.up.isDistributor(distributor.up) {
+		return nil
+	} else {
+		assignDistributor(place, distributor)
+	}
 	temp := dma.lookup.distributors[distributor.Name]
 	temp.includes = append(temp.includes,
 		place)
@@ -493,15 +613,17 @@ func (dma *Dma) appendDistributorExclude(distributor *Distributor, place *Place,
 	dma.Lock()
 	defer dma.Unlock()
 
+	temp := dma.lookup.distributors[distributor.Name]
+	temp.excludes = append(temp.excludes,
+		place)
+	dma.lookup.distributors[distributor.Name] = temp
+
 	if place.isDistributor(distributor) {
 		excludeDistributor(place, distributor)
 	} else {
 		logger.Info(distributor.Name, distributorAlreadyExcludedError, place)
 	}
-	temp := dma.lookup.distributors[distributor.Name]
-	temp.excludes = append(temp.excludes,
-		place)
-	dma.lookup.distributors[distributor.Name] = temp
+
 	return nil
 }
 
@@ -564,6 +686,8 @@ func (dma *Dma) CheckConflictBeforeChange(distributor *Distributor, includes []s
 	logger.Info(fmt.Sprintf("%q", inclusionPlaces))
 
 	logger.Info("fetching exclusions")
+	logger.Info(fmt.Sprintf("%q", excludes))
+
 	exclusionPlaces := make(map[string]*Place)
 	for _, exclude := range excludes {
 		place, err := dma.queryToPlace(exclude)
@@ -580,6 +704,7 @@ func (dma *Dma) CheckConflictBeforeChange(distributor *Distributor, includes []s
 
 	err := CheckConflictDistributor(dma, distributor, inclusionPlaces, exclusionPlaces)
 	if err != nil {
+
 		return err
 	}
 	return nil
@@ -587,7 +712,18 @@ func (dma *Dma) CheckConflictBeforeChange(distributor *Distributor, includes []s
 
 func CheckConflictDistributor(dma *Dma, dist *Distributor, includes map[string]*Place, exlcudes map[string]*Place) error {
 	for _, child := range includes {
-		err := checkConflictDistributor(dma, child, dist, exlcudes)
+		err := checkConflictDistributorIncludesSubsetOfExcludes(dma, child, dist, exlcudes)
+		if err != nil {
+			return err
+		}
+		err = checkConflictDistributorIncludes(dma, child, dist, exlcudes)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, child := range exlcudes {
+		err := checkConflictDistributorExcludes(dma, child, dist, includes)
 		if err != nil {
 			return err
 		}
@@ -597,12 +733,12 @@ func CheckConflictDistributor(dma *Dma, dist *Distributor, includes map[string]*
 
 }
 
-func checkConflictDistributor(dma *Dma, node *Place, dist *Distributor, exlcudes map[string]*Place) error {
+func checkConflictDistributorIncludes(dma *Dma, node *Place, dist *Distributor, exlcudes map[string]*Place) error {
 	if node == nil {
 		return nil
 	}
 	//inclusion check
-	if node.RightsOwnedBy != dist.up && node.RightsOwnedBy != nil {
+	if node.RightsOwnedBy != dist.up && dist.up != dma.data.distributors {
 
 		if _, ok := exlcudes[node.Id.String()]; ok {
 			return nil
@@ -612,12 +748,52 @@ func checkConflictDistributor(dma *Dma, node *Place, dist *Distributor, exlcudes
 	}
 
 	for _, child := range node.Next {
-		err := checkConflictDistributor(dma, child, dist, exlcudes)
+		err := checkConflictDistributorIncludes(dma, child, dist, exlcudes)
 		if err != nil {
 			return err
 		}
 	}
 
 	return nil
+
+}
+
+func checkConflictDistributorIncludesSubsetOfExcludes(dma *Dma, node *Place, dist *Distributor, excludes map[string]*Place) error {
+
+	for _, child := range excludes {
+		if result := checkConflictDistributorExcludesInternal(dma, child, dist, node); result {
+			return fmt.Errorf("include %s is part of the excludes of the distributor", node)
+		}
+	}
+	return nil
+
+}
+
+func checkConflictDistributorExcludes(dma *Dma, node *Place, dist *Distributor, includes map[string]*Place) error {
+
+	for _, child := range includes {
+		if result := checkConflictDistributorExcludesInternal(dma, child, dist, node); !result {
+			return fmt.Errorf("exclude %s not part of the includes in the distributor", node)
+		}
+	}
+	return nil
+
+}
+
+func checkConflictDistributorExcludesInternal(dma *Dma, node *Place, dist *Distributor, exclude *Place) bool {
+	if node == nil {
+		return false
+	}
+	//exclusion check
+	if node == exclude {
+		return true
+	}
+
+	for _, child := range node.Next {
+		if result := checkConflictDistributorExcludesInternal(dma, child, dist, exclude); result {
+			return result
+		}
+	}
+	return false
 
 }
