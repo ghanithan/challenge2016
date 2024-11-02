@@ -78,13 +78,26 @@ paths:
                   type: string
                   example: distributor1
             examples:
-              Add Distributor:
+              Add Top-level Distributor:
                 value:
                   exclude:
                     - IN-TN-CENAI
                   include:
                     - IN-TN
                   name: distributor1
+              Add Next-level Distributor:
+                value:
+                  parent: distributor1
+                  include:
+                    - IN-TN-COBTE
+                  name: distributor2
+              Add Next-level Distributor -ve Testcase:
+                value:
+                  parent: distributor1
+                  include:
+                    - IN-TN-CENAI
+                  name: distributor3
+            
       responses:
         '200':
           description: ''
