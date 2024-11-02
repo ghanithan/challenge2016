@@ -28,7 +28,13 @@ func InitServer(config *config.Config, dmaService *dma.Dma, logger *instrumentat
 		DmaService: dmaService,
 		Logger:     logger,
 	}
-	router.Use(mux.CORSMethodMiddleware(router))
+	// Catch all OPTIONS requests and handle CORS preflight
+	router.Methods("OPTIONS").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PATCH, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.WriteHeader(http.StatusOK)
+	})
 	router.Use(corsMiddleware)
 	router.Use(ghandlers.CompressHandler)
 
@@ -47,13 +53,12 @@ func InitServer(config *config.Config, dmaService *dma.Dma, logger *instrumentat
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Set CORS headers
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PATCH, DELET,")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PATCH, DELETE")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
+
+		// Proceed with the request
 		next.ServeHTTP(w, r)
 	})
 }
