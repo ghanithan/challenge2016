@@ -1,0 +1,181 @@
+openapi: 3.0.3
+info:
+  title: challenge2016
+  version: 1.0.0
+  contact: {}
+servers:
+  - url: 'http://localhost:3000'
+paths:
+  /version:
+    get:
+      summary: version
+      description: version
+      operationId: version
+      responses:
+        '200':
+          description: ''
+  /list/places:
+    get:
+      summary: list places
+      description: list places
+      operationId: listPlaces
+      parameters:
+        - name: in
+          in: query
+          schema:
+            type: string
+            example: IN-TN
+      responses:
+        '200':
+          description: ''
+  /permission/{distributorId}:
+    get:
+      summary: Get permission
+      description: Get permission
+      operationId: getPermission
+      parameters:
+        - name: in
+          in: query
+          schema:
+            type: string
+            example: IN-TN
+      responses:
+        '200':
+          description: ''
+    parameters:
+      - name: distributorId
+        in: path
+        required: true
+        schema:
+          type: string
+  /distributor:
+    get:
+      summary: Get Distributor
+      description: Get Distributor
+      operationId: getDistributor
+      parameters:
+        - name: id
+          in: query
+          schema:
+            type: string
+            example: 5dae4cbc-b84f-44d4-ad0d-56fda7191cb4
+        - name: name
+          in: query
+          schema:
+            type: string
+            example: distributor1
+      responses:
+        '200':
+          description: ''
+    post:
+      summary: Add Distributor
+      description: Add Distributor
+      operationId: addDistributor
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                exclude:
+                  type: array
+                  items:
+                    type: string
+                    example: IN-TN-CENAI
+                  example:
+                    - IN-TN-CENAI
+                include:
+                  type: array
+                  items:
+                    type: string
+                    example: IN-TN
+                  example:
+                    - IN-TN
+                name:
+                  type: string
+                  example: distributor1
+            examples:
+              Add Distributor:
+                value:
+                  exclude:
+                    - IN-TN-CENAI
+                  include:
+                    - IN-TN
+                  name: distributor1
+      responses:
+        '200':
+          description: ''
+    delete:
+      summary: Delete Distributor
+      description: Delete Distributor
+      operationId: deleteDistributor
+      parameters:
+        - name: name
+          in: query
+          schema:
+            type: string
+            example: distributor1
+      responses:
+        '200':
+          description: ''
+    patch:
+      summary: Update Distributor
+      description: Update Distributor
+      operationId: updateDistributor
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                exclude:
+                  type: object
+                  properties:
+                    add:
+                      type: array
+                      items:
+                        type: string
+                        example: IN-TN-COBTE
+                      example:
+                        - IN-TN-COBTE
+                    delete:
+                      type: array
+                      items: {}
+                      example: []
+                include:
+                  type: object
+                  properties:
+                    add:
+                      type: array
+                      items:
+                        type: string
+                        example: IN-TN-COBTE
+                      example:
+                        - IN-TN-COBTE
+                    delete:
+                      type: array
+                      items:
+                        type: string
+                        example: IN-TN-CENAI
+                      example:
+                        - IN-TN-CENAI
+                name:
+                  type: string
+                  example: distributor1
+            examples:
+              Update Distributor:
+                value:
+                  exclude:
+                    add:
+                      - IN-TN-COBTE
+                    delete: []
+                  include:
+                    add:
+                      - IN-TN-COBTE
+                    delete:
+                      - IN-TN-CENAI
+                  name: distributor1
+      responses:
+        '200':
+          description: ''
+tags: []
