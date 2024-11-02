@@ -3,10 +3,10 @@ package main
 import (
 	"fmt"
 
-	server "github.com/ghanithan/challenge2016/Server"
 	"github.com/ghanithan/challenge2016/config"
 	"github.com/ghanithan/challenge2016/dma"
 	"github.com/ghanithan/challenge2016/instrumentation"
+	server "github.com/ghanithan/challenge2016/server"
 )
 
 func main() {

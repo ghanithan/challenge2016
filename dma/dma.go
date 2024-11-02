@@ -9,7 +9,7 @@ import (
 
 	"github.com/ghanithan/challenge2016/config"
 	"github.com/ghanithan/challenge2016/instrumentation"
-	loadcsv "github.com/ghanithan/challenge2016/loadCsv"
+	loadcsv "github.com/ghanithan/challenge2016/loadcsv"
 	"github.com/google/uuid"
 )
 
