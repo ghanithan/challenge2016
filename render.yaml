@@ -3,8 +3,8 @@
 # Do not use this file directly! Consult it for reference only. #
 #################################################################
 
-previews:
-    generation: automatic # Enable preview environments
+# previews:
+#     generation: automatic # Enable preview environments
 
   # List all services *except* PostgreSQL databases here
 services:
