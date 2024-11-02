@@ -47,7 +47,7 @@ func (service *Service) GetDistributorPermission() http.Handler {
 			// Adding support to filter multiple places in the same request
 			queries := strings.Split(queryIn, ",")
 			for _, query := range queries {
-				queryResult, err := service.DmaService.GetPlaceByCode(query)
+				queryResult, err := service.DmaService.GetPlaceByTag(query)
 				if err != nil {
 					FailureResponse(w, http.StatusNotFound, err.Error())
 					return

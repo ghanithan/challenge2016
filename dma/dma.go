@@ -74,6 +74,10 @@ func (tier Tier) String() string {
 	return str
 }
 
+//-----------------------------------------------------------------------------
+//			Place - Struct to handle the places
+//-----------------------------------------------------------------------------
+
 type Place struct {
 	Id            uuid.UUID    `json:"id"`
 	Type          Tier         `json:"type"` //Enum
@@ -115,27 +119,52 @@ func (place *Place) AddParentNode(parentNode *Place) {
 	place.addUp(parentNode)
 }
 
-// Utility to query and print the DMA
-type QueryDma struct {
-	CountryCode string `json:"cc"`
-	StateCode   string `json:"stc,omitempty"`
-	CityCode    string `json:"ctyc,omitempty"`
+func (place *Place) addUp(up *Place) {
+	place.up = up
 }
 
-func (query QueryDma) String() string {
-	output := ""
-	switch {
-	case query.CityCode == "" && query.StateCode == "" && query.CountryCode == "":
-		break
-	case query.CityCode == "" && query.StateCode == "":
-		output = query.CountryCode
-	case query.CityCode == "":
-		output = fmt.Sprintf("%s-%s", query.CountryCode, query.StateCode)
-	default:
-		output = fmt.Sprintf("%s-%s-%s", query.CountryCode, query.StateCode, query.CityCode)
-	}
-	return output
+func (place *Place) addNext(next *Place) {
+	place.Next = append(place.Next, next)
 }
+
+func placesToTags(places []*Place) []string {
+	strs := []string{}
+	for _, place := range places {
+		strs = append(strs, place.Tag)
+	}
+	return strs
+}
+
+func (place *Place) isDistributorPresent() bool {
+	return place.RightsOwnedBy != nil
+}
+
+func (place *Place) isDistributor(dist *Distributor) bool {
+	return place.RightsOwnedBy == dist
+}
+
+func (place *Place) removeDistributor(parent *Place) {
+	if parent.RightsOwnedBy == nil {
+		place.removeDistributorInternal()
+		return
+	}
+
+	for _, exclude := range parent.RightsOwnedBy.excludes {
+		if exclude == place {
+			place.removeDistributor(parent.up)
+			return
+		}
+	}
+	place.RightsOwnedBy = parent.RightsOwnedBy
+}
+
+func (place *Place) removeDistributorInternal() {
+	place.RightsOwnedBy = nil
+}
+
+//-----------------------------------------------------------------------------
+//					Dma - Methods and helper functions
+//-----------------------------------------------------------------------------
 
 func (dma *Dma) GetPlaces() []*Place {
 	return dma.data.places.Next
@@ -177,6 +206,15 @@ func printDmaInternal(place *Place) {
 	fmt.Printf("%s: %s\n", place.Type, place)
 }
 
+//
+// Function name: validateRow
+//
+// Purpose:  Function to validate the CSV rows and record any descrepency
+// Found out some duplicate values but choose to proceed without reporting as error
+// Output of this function is a linked list for every row in the CSV that would be
+// later used to update the dma's double linked list
+//
+
 func validateRow(slice []string) (*Place, error) {
 	if slice != nil && len(slice) != HEIRARCHY*2 {
 		return nil, fmt.Errorf("there is discrepency in the data loaded from CSV")
@@ -211,22 +249,18 @@ func validateRow(slice []string) (*Place, error) {
 			}
 
 		}
-		// if slice[1] == "WLG" {
-		// 	fmt.Println("WLG here")
-		// 	fmt.Println(leaf.getType())
-		// }
+
 		return leaf, nil
 	}
 
 }
 
-func (place *Place) addUp(up *Place) {
-	place.up = up
-}
-
-func (place *Place) addNext(next *Place) {
-	place.Next = append(place.Next, next)
-}
+//
+// Function name: populateData
+//
+// Purpose: Helper function used by the the generator function (InitDma) to populate the
+// Dma's double linked list
+//
 
 func populateData(dma *Dma, leaf *Place, logger *instrumentation.GoLogger) *Place {
 
@@ -245,6 +279,13 @@ func populateData(dma *Dma, leaf *Place, logger *instrumentation.GoLogger) *Plac
 	dma.lookup.places[leaf.Tag] = leaf
 	return leaf
 }
+
+//
+// Function name: InitDma
+//
+// Purpose: Generator function to initialized the Dma with the places double linked list
+// which is the backbone of this datastructure
+//
 
 func InitDma(config *config.Config, logger *instrumentation.GoLogger) (*Dma, error) {
 	csv, err := loadcsv.LoadCsv(config.Data.FilePath)
@@ -311,7 +352,7 @@ func (dma *Dma) PrintPlacesFrom(query string) {
 	printPlacesInternal(place, place.getType())
 }
 
-func (dma *Dma) GetPlaceByCode(query string) (*Place, error) {
+func (dma *Dma) GetPlaceByTag(query string) (*Place, error) {
 	dma.RLock()
 	defer dma.RUnlock()
 	if result, ok := dma.lookup.places[query]; ok {
@@ -335,7 +376,7 @@ func printPlacesInternal(node *Place, stage int) {
 // Distributor Datastructure
 
 // I am looking to have a tight coupling between DMA and Disbributor Datastructures
-// This should help us retrieve information at a time complexity if O(1)
+// This should help us retrieve information at a time complexity of O(1)
 
 type Distributor struct {
 	Id       uuid.UUID `json:"id"`
@@ -352,14 +393,6 @@ func (dist Distributor) GetIncludesAsTags() []string {
 
 func (dist Distributor) GetExcludesAsTags() []string {
 	return placesToTags(dist.excludes)
-}
-
-func placesToTags(places []*Place) []string {
-	strs := []string{}
-	for _, place := range places {
-		strs = append(strs, place.Tag)
-	}
-	return strs
 }
 
 func (dist *Distributor) String() string {
@@ -406,7 +439,7 @@ func (dma *Dma) GetDistributor(name string) (*Distributor, error) {
 func (dma *Dma) ProcessTagInRequest(tags []string) ([]*Place, error) {
 	places := []*Place{}
 	for _, tag := range tags {
-		place, err := dma.GetPlaceByCode(tag)
+		place, err := dma.GetPlaceByTag(tag)
 		if err != nil {
 			return nil, err
 		}
@@ -463,72 +496,6 @@ func (dma *Dma) DeleteDistributor(name string) error {
 	}
 	return fmt.Errorf("distributor %s not present", name)
 
-}
-
-func (place *Place) isDistributorPresent() bool {
-	return place.RightsOwnedBy != nil
-}
-
-func (place *Place) isDistributor(dist *Distributor) bool {
-	return place.RightsOwnedBy == dist
-}
-
-func (dma *Dma) queryDmaToPlaces(queries []QueryDma) ([]*Place, error) {
-	places := []*Place{}
-	for _, query := range queries {
-		place, err := dma.queryToPlace(fmt.Sprint(query))
-		if err != nil {
-			return []*Place{}, err
-		}
-		places = append(places, place)
-
-	}
-	return places, nil
-}
-
-func assignDistributor(place *Place, dist *Distributor) {
-	if place == nil {
-		return
-	}
-
-	place.RightsOwnedBy = dist
-
-	for _, child := range place.Next {
-		assignDistributor(child, dist)
-	}
-}
-
-func (place *Place) removeDistributor(parent *Place) {
-	if parent.RightsOwnedBy == nil {
-		place.removeDistributorInternal()
-		return
-	}
-
-	for _, exclude := range parent.RightsOwnedBy.excludes {
-		if exclude == place {
-			place.removeDistributor(parent.up)
-			return
-		}
-	}
-	place.RightsOwnedBy = parent.RightsOwnedBy
-}
-
-func (place *Place) removeDistributorInternal() {
-	place.RightsOwnedBy = nil
-}
-
-func excludeDistributor(place *Place, dist *Distributor) {
-	if place == nil {
-		return
-	}
-
-	if place.isDistributor(dist) {
-		place.removeDistributor(place.up)
-	}
-
-	for _, child := range place.Next {
-		excludeDistributor(child, dist)
-	}
 }
 
 func (dma *Dma) DeleteDistributorInclude(distributor *Distributor, deletePlacesStr []string,
@@ -710,6 +677,32 @@ func (dma *Dma) CheckConflictBeforeChange(distributor *Distributor, includes []s
 	return nil
 }
 
+func assignDistributor(place *Place, dist *Distributor) {
+	if place == nil {
+		return
+	}
+
+	place.RightsOwnedBy = dist
+
+	for _, child := range place.Next {
+		assignDistributor(child, dist)
+	}
+}
+
+func excludeDistributor(place *Place, dist *Distributor) {
+	if place == nil {
+		return
+	}
+
+	if place.isDistributor(dist) {
+		place.removeDistributor(place.up)
+	}
+
+	for _, child := range place.Next {
+		excludeDistributor(child, dist)
+	}
+}
+
 func CheckConflictDistributor(dma *Dma, dist *Distributor, includes map[string]*Place, exlcudes map[string]*Place) error {
 	for _, child := range includes {
 		err := checkConflictDistributorIncludesSubsetOfExcludes(dma, child, dist, exlcudes)
@@ -796,4 +789,43 @@ func checkConflictDistributorExcludesInternal(dma *Dma, node *Place, dist *Distr
 	}
 	return false
 
+}
+
+//-----------------------------------------------------------------------------
+//			QueryDma - Deprecated
+//-----------------------------------------------------------------------------
+
+// Utility to query and print the DMA
+type QueryDma struct {
+	CountryCode string `json:"cc"`
+	StateCode   string `json:"stc,omitempty"`
+	CityCode    string `json:"ctyc,omitempty"`
+}
+
+func (query QueryDma) String() string {
+	output := ""
+	switch {
+	case query.CityCode == "" && query.StateCode == "" && query.CountryCode == "":
+		break
+	case query.CityCode == "" && query.StateCode == "":
+		output = query.CountryCode
+	case query.CityCode == "":
+		output = fmt.Sprintf("%s-%s", query.CountryCode, query.StateCode)
+	default:
+		output = fmt.Sprintf("%s-%s-%s", query.CountryCode, query.StateCode, query.CityCode)
+	}
+	return output
+}
+
+func (dma *Dma) queryDmaToPlaces(queries []QueryDma) ([]*Place, error) {
+	places := []*Place{}
+	for _, query := range queries {
+		place, err := dma.queryToPlace(fmt.Sprint(query))
+		if err != nil {
+			return []*Place{}, err
+		}
+		places = append(places, place)
+
+	}
+	return places, nil
 }
