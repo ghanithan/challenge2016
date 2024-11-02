@@ -15,7 +15,7 @@ services:
         repo: https://github.com/ghanithan/challenge2016 # Default: Repo containing render.yaml
         numInstances: 1   # Manual scaling configuration. Default: 1 for new services
         region: frankfurt # Default: oregon
-        plan: standard    # Default: starter
+        plan: starter    # Default: starter
         branch: solution      # Default: master
         buildCommand: go build -tags netgo -ldflags '-s -w' -o app
         startCommand: ./app
