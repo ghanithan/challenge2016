@@ -25,5 +25,5 @@ previews:
             - ghanithan.com
             - www.ghanithan.com
         envVars: # Environment variables
-            - key: API_BASE_URL
+            key: API_BASE_URL
             value: https://api.ghanithan.com # Hardcoded value
