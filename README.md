@@ -1,5 +1,20 @@
 # Real Image Challenge 2016
 
+
+## Solution
+
+The solution has been completed as per specification and the solution has been hosted in render.com
+[https://challenge2016.onrender.com/](https://challenge2016.onrender.com/)
+
+It is hosted in free tier, so there will be a warm-up time close to 1 min. After the initial warm-up it would 
+provide a fast response.
+
+The endpoints are described in the OpenApi Spec (./openapispec_v1.yaml). The same can be viewed using [https://editor.swagger.io/](https://editor.swagger.io/)
+
+I am looking forwared to do a detailed write-up about the approch.
+
+
+
 In the cinema business, a feature film is usually provided to a regional distributor based on a contract for exhibition in a particular geographical territory.
 
 Each authorization is specified by a combination of included and excluded regions. For example, a distributor might be authorzied in the following manner:
